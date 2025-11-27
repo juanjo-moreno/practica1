@@ -1,0 +1,212 @@
+---
+title: "QSAR - Análisis de Bioconcentración (BCF)"
+author: "Juan José Moreno & Edgar Padilla"
+date: "today"
+subtitle: Datos de Grisoni et al. (2016)
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+    theme: cosmo
+    df-print: paged
+editor: visual
+---
+
+## Introducción
+
+Este documento analiza los datos de bioconcentración (BCF) del estudio de Grisoni et al. (2016), enfocándose en la clasificación binaria de compuestos según su nivel de BCF.
+
+## 1. Carga de librerías
+
+```{r}
+#| label: librerias
+#| message: false
+#| warning: false
+
+library(readr)
+library(dplyr)
+library(mRMRe)
+library(infotheo)
+library(class)
+library(nnet)
+```
+
+## 2. Carga de datos y binarización
+
+```{r}
+#| label: carga-datos
+
+# Cargar datos
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/00510/Grisoni_et_al_2016_EnvInt88.csv"
+Data <- read_csv(url, na = "?")
+
+# Binarización: Clase 2 = "exceso de BCF" = alto riesgo
+Data$Class_bin <- ifelse(Data$Class == 2, 1, 0)
+
+# Convertir a factor con etiquetas descriptivas
+Data$Class_bin <- factor(Data$Class_bin,
+                         levels = c(0, 1),
+                         labels = c("BCF_Normal_o_Bajo", "BCF_Exceso_Alto"))
+```
+
+### Distribución de clases
+
+```{r}
+#| label: proporcion-clases
+
+# Proporciones (%)
+prop.table(table(Data$Class_bin)) * 100
+```
+
+## 3. Visualización de la distribución
+
+### Tabla de frecuencias
+
+```{r}
+#| label: tablas-frecuencia
+
+# Tabla absoluta
+tabla_abs <- table(Data$Class_bin)
+print(tabla_abs)
+
+# Porcentajes
+porcentajes <- prop.table(tabla_abs) * 100
+print(porcentajes)
+```
+
+### Gráfico de barras
+
+```{r}
+#| label: fig-barplot
+#| fig-cap: "Distribución de la variable respuesta binaria"
+#| fig-width: 8
+#| fig-height: 6
+
+bp <- barplot(tabla_abs,
+              main = "Distribución de la variable respuesta binaria\n(Grisoni et al., 2016)",
+              xlab = "Categoría de bioconcentración",
+              ylab = "Frecuencia absoluta",
+              col = c("lightgray", "firebrick"),
+              ylim = c(0, max(tabla_abs) * 1.12))
+
+# Añadir porcentajes
+text(x = bp,
+     y = tabla_abs + max(tabla_abs) * 0.03,
+     labels = paste0(round(porcentajes, 1), "%"),
+     pos = 3, cex = 0.95)
+```
+
+## 4. Análisis descriptivo de predictores
+
+```{r}
+#| label: verificar-columnas
+
+# Primero verificamos los nombres de columnas disponibles
+print("Nombres de columnas en el dataset:")
+print(names(Data))
+```
+
+```{r}
+#| label: definir-predictores
+
+# Seleccionar solo columnas numéricas (excluyendo Class y Class_bin)
+numeric_cols <- sapply(Data, is.numeric)
+X_names <- names(Data)[numeric_cols & !names(Data) %in% c("Class", "Class_bin")]
+
+# Si quieres usar solo predictores específicos, descomenta y ajusta:
+# X_names <- c("nHM", "piPC09", "PCD", "X2Av", "MLOGP", 
+#              "ON1V", "N072", "B02[C-N]", "F04[C-O]")
+
+print(paste("Número de predictores numéricos:", length(X_names)))
+print("Predictores seleccionados:")
+print(X_names)
+```
+
+### Resumen estadístico
+
+```{r}
+#| label: resumen-numerico
+
+summary(Data[X_names])
+```
+
+### Conteo por clases
+
+```{r}
+#| label: conteo-clases
+
+table(Data$Class_bin)
+```
+
+### Boxplots comparativos
+
+```{r}
+#| label: fig-boxplots
+#| fig-cap: "Comparación de predictores por clase de BCF"
+#| fig-width: 10
+#| fig-height: 12
+
+par(mfrow = c(5, 2), mar = c(4, 4, 2, 1))
+for (var in X_names) {
+  boxplot(Data[[var]] ~ Data$Class_bin,
+          main = var,
+          xlab = "Clase de BCF",
+          ylab = var,
+          col = c("lightgray", "firebrick"))
+}
+```
+
+### Estadísticos por clase
+
+```{r}
+#| label: stats-by-class
+
+stats_by_class <- Data %>%
+  group_by(Class_bin) %>%
+  summarise(
+    n = n(),
+    across(all_of(X_names), 
+           list(media = ~ round(mean(., na.rm = TRUE), 2),
+                mediana = ~ round(median(., na.rm = TRUE), 2),
+                sd = ~ round(sd(., na.rm = TRUE), 2)),
+           .names = "{.col}_{.fn}")
+  )
+
+print(stats_by_class)
+```
+
+## 5. Matriz de correlación
+
+```{r}
+#| label: fig-correlacion
+#| fig-cap: "Matriz de correlación entre predictores"
+#| fig-width: 10
+#| fig-height: 10
+
+# Calcular matriz de correlación solo con variables numéricas
+cor_matrix <- cor(Data[X_names], use = "complete.obs")
+
+n_vars <- length(X_names)
+
+image(1:n_vars, 1:n_vars, cor_matrix,
+      main = "Correlación entre predictores",
+      xlab = "", ylab = "",
+      col = hcl.colors(50, "BluYl"),
+      axes = FALSE)
+axis(1, at = 1:n_vars, labels = X_names, las = 2, cex.axis = 0.7)
+axis(2, at = 1:n_vars, labels = X_names, las = 2, cex.axis = 0.7)
+text(expand.grid(1:n_vars, 1:n_vars), labels = round(cor_matrix, 2), cex = 0.5)
+```
+
+## Conclusiones
+
+Este análisis exploratorio proporciona una visión general de:
+
+- La distribución de las clases de bioconcentración
+- Las características de los predictores moleculares
+- Las relaciones entre variables predictoras
+
+---
+
+**Fuente de datos:** Grisoni et al. (2016), Environmental International 88
